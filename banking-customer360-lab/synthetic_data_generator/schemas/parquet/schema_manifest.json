@@ -1,0 +1,232 @@
+{
+  "customers": [
+    {
+      "name": "customer_id",
+      "type": "int64",
+      "nullable": false
+    },
+    {
+      "name": "full_name",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "identity_number",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "date_of_birth",
+      "type": "date32[day]",
+      "nullable": true
+    },
+    {
+      "name": "gender",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "customer_type",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "created_at",
+      "type": "timestamp[us, tz=UTC]",
+      "nullable": false
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamp[us, tz=UTC]",
+      "nullable": false
+    }
+  ],
+  "accounts": [
+    {
+      "name": "account_id",
+      "type": "int64",
+      "nullable": false
+    },
+    {
+      "name": "customer_id",
+      "type": "int64",
+      "nullable": false
+    },
+    {
+      "name": "account_type",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "balance",
+      "type": "decimal128(18, 2)",
+      "nullable": false
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "created_at",
+      "type": "timestamp[us, tz=UTC]",
+      "nullable": false
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamp[us, tz=UTC]",
+      "nullable": false
+    }
+  ],
+  "transactions": [
+    {
+      "name": "transaction_id",
+      "type": "int64",
+      "nullable": false
+    },
+    {
+      "name": "account_id",
+      "type": "int64",
+      "nullable": false
+    },
+    {
+      "name": "transaction_type",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "amount",
+      "type": "decimal128(18, 2)",
+      "nullable": false
+    },
+    {
+      "name": "transaction_time",
+      "type": "timestamp[us, tz=UTC]",
+      "nullable": false
+    },
+    {
+      "name": "channel",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "merchant_category",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "merchant_name",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "reference_number",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamp[us, tz=UTC]",
+      "nullable": false
+    }
+  ],
+  "customer_profiles": [
+    {
+      "name": "profile_id",
+      "type": "int64",
+      "nullable": false
+    },
+    {
+      "name": "identity_number",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "phone",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "email",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "address",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "occupation",
+      "type": "string",
+      "nullable": true
+    },
+    {
+      "name": "monthly_income",
+      "type": "decimal128(18, 2)",
+      "nullable": true
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamp[us, tz=UTC]",
+      "nullable": false
+    }
+  ],
+  "loans": [
+    {
+      "name": "loan_id",
+      "type": "int64",
+      "nullable": false
+    },
+    {
+      "name": "customer_id",
+      "type": "int64",
+      "nullable": false
+    },
+    {
+      "name": "loan_type",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "loan_amount",
+      "type": "decimal128(18, 2)",
+      "nullable": false
+    },
+    {
+      "name": "outstanding",
+      "type": "decimal128(18, 2)",
+      "nullable": false
+    },
+    {
+      "name": "overdue_days",
+      "type": "int32",
+      "nullable": false
+    },
+    {
+      "name": "loan_date",
+      "type": "date32[day]",
+      "nullable": false
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "nullable": false
+    },
+    {
+      "name": "updated_at",
+      "type": "timestamp[us, tz=UTC]",
+      "nullable": false
+    }
+  ]
+}

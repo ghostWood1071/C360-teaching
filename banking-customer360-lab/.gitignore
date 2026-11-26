@@ -1,0 +1,14 @@
+data/
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+.env
+.secrets/
+infra/certs/*.pem
+infra/certs/*.crt
+infra/certs/*.key
+infra/trino/config/security/password.db
+infra/ranger/config/install.properties
+infra/evidence/docker-stats*.csv
+reports/phase3/runtime/**

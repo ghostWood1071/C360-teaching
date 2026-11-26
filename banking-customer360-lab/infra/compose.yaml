@@ -1,0 +1,370 @@
+name: ${COMPOSE_PROJECT_NAME:-customer360}
+
+x-airflow-common: &airflow-common
+  image: customer360-airflow:${AIRFLOW_VERSION:-2.10.5}
+  build:
+    context: ..
+    dockerfile: infra/airflow/Dockerfile
+    args:
+      AIRFLOW_VERSION: ${AIRFLOW_VERSION:-2.10.5}
+      AIRFLOW_DOCKER_PROVIDER_VERSION: ${AIRFLOW_DOCKER_PROVIDER_VERSION:-4.0.0}
+  environment: &airflow-environment
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?Run make setup}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@postgres:5432/${AIRFLOW_DB_NAME}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY:?Run make setup}
+    AIRFLOW__SCHEDULER__MAX_THREADS: "2"
+    AIRFLOW__CORE__PARALLELISM: "4"
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "2"
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER}
+    AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+    AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL}
+    SPARK_TASK_POOL_SLOTS: ${SPARK_TASK_POOL_SLOTS:-1}
+    SPARK_IMAGE: ${SPARK_IMAGE}
+    SPARK_MASTER: ${SPARK_MASTER:-local[4]}
+    SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-2g}
+    SPARK_CONTAINER_MEMORY: ${SPARK_CONTAINER_MEMORY:-4g}
+    SPARK_CPUS: ${SPARK_CPUS:-4}
+    SPARK_SHUFFLE_PARTITIONS: ${SPARK_SHUFFLE_PARTITIONS:-8}
+    SPARK_RESOURCE_PROFILE: ${SPARK_RESOURCE_PROFILE:-standard}
+    SPARK_LOW_MASTER: ${SPARK_LOW_MASTER:-local[2]}
+    SPARK_LOW_DRIVER_MEMORY: ${SPARK_LOW_DRIVER_MEMORY:-1g}
+    SPARK_LOW_CONTAINER_MEMORY: ${SPARK_LOW_CONTAINER_MEMORY:-2560m}
+    SPARK_LOW_CPUS: ${SPARK_LOW_CPUS:-2}
+    SPARK_LOW_SHUFFLE_PARTITIONS: ${SPARK_LOW_SHUFFLE_PARTITIONS:-4}
+    SPARK_EVENTS_VOLUME: ${SPARK_EVENTS_VOLUME}
+    SPARK_JOBS_VOLUME: ${SPARK_JOBS_VOLUME}
+    SPARK_JOB_TIMEOUT_SECONDS: ${SPARK_JOB_TIMEOUT_SECONDS:-1800}
+    DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME}
+    SPARK_S3_ACCESS_KEY: ${SPARK_S3_ACCESS_KEY}
+    SPARK_S3_SECRET_KEY: ${SPARK_S3_SECRET_KEY}
+    CORE_BANKING_JDBC_URL: jdbc:postgresql://postgres:5432/${CORE_BANKING_DB_NAME}
+    CORE_BANKING_DB_USER: ${CORE_BANKING_DB_USER}
+    CORE_BANKING_DB_PASSWORD: ${CORE_BANKING_DB_PASSWORD}
+    CRM_JDBC_URL: jdbc:postgresql://postgres:5432/${CRM_DB_NAME}
+    CRM_DB_USER: ${CRM_DB_USER}
+    CRM_DB_PASSWORD: ${CRM_DB_PASSWORD}
+    PHASE3_CONFIG: /opt/spark/jobs/phase3/config/phase3.yaml
+    TRINO_HOST: trino
+    TRINO_PORT: "8080"
+    TRINO_SCHEME: http
+  user: "${AIRFLOW_UID:-50000}:0"
+  networks: [customer360]
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags:ro
+    - ./airflow/plugins:/opt/airflow/plugins:ro
+    - airflow-logs:/opt/airflow/logs
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-16.6-bookworm}
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: postgres
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      METASTORE_DB_NAME: ${METASTORE_DB_NAME}
+      METASTORE_DB_USER: ${METASTORE_DB_USER}
+      METASTORE_DB_PASSWORD: ${METASTORE_DB_PASSWORD}
+      RANGER_DB_NAME: ${RANGER_DB_NAME}
+      RANGER_DB_USER: ${RANGER_DB_USER}
+      RANGER_DB_PASSWORD: ${RANGER_DB_PASSWORD}
+      CORE_BANKING_DB_NAME: ${CORE_BANKING_DB_NAME}
+      CORE_BANKING_DB_USER: ${CORE_BANKING_DB_USER}
+      CORE_BANKING_DB_PASSWORD: ${CORE_BANKING_DB_PASSWORD}
+      CRM_DB_NAME: ${CRM_DB_NAME}
+      CRM_DB_USER: ${CRM_DB_USER}
+      CRM_DB_PASSWORD: ${CRM_DB_PASSWORD}
+      CREATE_SOURCE_DATABASES: ${CREATE_SOURCE_DATABASES:-false}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    mem_limit: ${POSTGRES_CONTAINER_MEMORY:-768m}
+    networks: [customer360]
+    restart: unless-stopped
+
+  minio:
+    image: customer360-minio:${MINIO_VERSION:-RELEASE.2025-10-15T17-29-55Z}
+    build:
+      context: ..
+      dockerfile: infra/minio/Dockerfile
+      args:
+        MINIO_VERSION: ${MINIO_VERSION:-RELEASE.2025-10-15T17-29-55Z}
+        MINIO_MC_VERSION: ${MINIO_MC_VERSION:-RELEASE.2025-08-13T08-35-41Z}
+    command: ["minio", "server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_REGION_NAME: ${MINIO_REGION:-us-east-1}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
+      - "${HOST_BIND:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    mem_limit: ${MINIO_CONTAINER_MEMORY:-768m}
+    networks: [customer360]
+    restart: unless-stopped
+
+  minio-init:
+    image: customer360-minio:${MINIO_VERSION:-RELEASE.2025-10-15T17-29-55Z}
+    build:
+      context: ..
+      dockerfile: infra/minio/Dockerfile
+      args:
+        MINIO_VERSION: ${MINIO_VERSION:-RELEASE.2025-10-15T17-29-55Z}
+        MINIO_MC_VERSION: ${MINIO_MC_VERSION:-RELEASE.2025-08-13T08-35-41Z}
+    entrypoint: ["/bin/sh", "/init/initialize.sh"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      SPARK_S3_ACCESS_KEY: ${SPARK_S3_ACCESS_KEY}
+      SPARK_S3_SECRET_KEY: ${SPARK_S3_SECRET_KEY}
+      TRINO_S3_ACCESS_KEY: ${TRINO_S3_ACCESS_KEY}
+      TRINO_S3_SECRET_KEY: ${TRINO_S3_SECRET_KEY}
+      PLATFORM_S3_ACCESS_KEY: ${PLATFORM_S3_ACCESS_KEY}
+      PLATFORM_S3_SECRET_KEY: ${PLATFORM_S3_SECRET_KEY}
+    volumes:
+      - ./minio/init:/init:ro
+      - ./minio/policies:/policies:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks: [customer360]
+    restart: "no"
+
+  hive-metastore-init:
+    image: customer360-hive-metastore:${HIVE_VERSION:-3.1.3}
+    build:
+      context: .
+      dockerfile: hive/Dockerfile
+      args:
+        HIVE_VERSION: ${HIVE_VERSION:-3.1.3}
+        POSTGRES_JDBC_VERSION: ${POSTGRES_JDBC_VERSION:-42.7.4}
+        HADOOP_VERSION: ${HADOOP_VERSION:-3.1.4}
+        AWS_SDK_BUNDLE_VERSION: ${HIVE_AWS_SDK_BUNDLE_VERSION:-1.11.271}
+    command: ["/opt/customer360/init-metastore.sh"]
+    environment: &hive-environment
+      METASTORE_DB_NAME: ${METASTORE_DB_NAME}
+      METASTORE_DB_USER: ${METASTORE_DB_USER}
+      METASTORE_DB_PASSWORD: ${METASTORE_DB_PASSWORD}
+      SPARK_S3_ACCESS_KEY: ${SPARK_S3_ACCESS_KEY}
+      SPARK_S3_SECRET_KEY: ${SPARK_S3_SECRET_KEY}
+      HADOOP_HEAPSIZE: ${HIVE_HEAP_SIZE:-512m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [customer360]
+    restart: "no"
+
+  hive-metastore:
+    image: customer360-hive-metastore:${HIVE_VERSION:-3.1.3}
+    build:
+      context: .
+      dockerfile: hive/Dockerfile
+      args:
+        HIVE_VERSION: ${HIVE_VERSION:-3.1.3}
+        POSTGRES_JDBC_VERSION: ${POSTGRES_JDBC_VERSION:-42.7.4}
+        HADOOP_VERSION: ${HADOOP_VERSION:-3.1.4}
+        AWS_SDK_BUNDLE_VERSION: ${HIVE_AWS_SDK_BUNDLE_VERSION:-1.11.271}
+    command: ["/opt/hive/bin/hive", "--service", "metastore", "-p", "9083"]
+    environment: *hive-environment
+    depends_on:
+      hive-metastore-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 9083"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+    mem_limit: ${HIVE_CONTAINER_MEMORY:-1g}
+    networks: [customer360]
+    restart: unless-stopped
+
+  spark-jobs-init:
+    image: alpine:3.21.3
+    command: ["/bin/sh", "-c", "cp -R /source/. /jobs/ && chmod -R a-w /jobs"]
+    volumes:
+      - ./spark/jobs:/source:ro
+      - spark-jobs:/jobs
+    restart: "no"
+
+  spark-volume-init:
+    image: alpine:3.21.3
+    command: ["/bin/sh", "-c", "chmod 0777 /spark-events"]
+    volumes:
+      - spark-events:/spark-events
+    restart: "no"
+
+  spark-history:
+    image: ${SPARK_IMAGE}
+    build:
+      context: ..
+      dockerfile: infra/spark/Dockerfile
+      args:
+        SPARK_VERSION: ${SPARK_VERSION:-3.5.6}
+        DELTA_VERSION: ${DELTA_VERSION:-3.2.0}
+        HADOOP_AWS_VERSION: ${HADOOP_AWS_VERSION:-3.3.4}
+        AWS_SDK_BUNDLE_VERSION: ${AWS_SDK_BUNDLE_VERSION:-1.12.262}
+        POSTGRES_JDBC_VERSION: ${POSTGRES_JDBC_VERSION:-42.7.4}
+        MYSQL_JDBC_VERSION: ${MYSQL_JDBC_VERSION:-8.4.0}
+        HIVE_VERSION: ${HIVE_VERSION:-3.1.3}
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
+    environment:
+      SPARK_DAEMON_MEMORY: ${HISTORY_HEAP_SIZE:-384m}
+      SPARK_HISTORY_OPTS: >-
+        -Dspark.history.fs.logDirectory=file:///spark-events
+        -Dspark.history.fs.cleaner.enabled=true
+        -Dspark.history.fs.cleaner.maxAge=${SPARK_EVENT_LOG_MAX_AGE:-7d}
+    volumes:
+      - spark-events:/spark-events:ro
+      - spark-jobs:/opt/spark/jobs:ro
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${SPARK_HISTORY_PORT:-18080}:18080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18080/api/v1/applications >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+    mem_limit: ${HISTORY_CONTAINER_MEMORY:-768m}
+    networks: [customer360]
+    restart: unless-stopped
+
+  spark-runner:
+    image: ${SPARK_IMAGE}
+    profiles: [tools]
+    environment:
+      SPARK_S3_ACCESS_KEY: ${SPARK_S3_ACCESS_KEY}
+      SPARK_S3_SECRET_KEY: ${SPARK_S3_SECRET_KEY}
+      CORE_BANKING_JDBC_URL: jdbc:postgresql://postgres:5432/${CORE_BANKING_DB_NAME}
+      CORE_BANKING_DB_USER: ${CORE_BANKING_DB_USER}
+      CORE_BANKING_DB_PASSWORD: ${CORE_BANKING_DB_PASSWORD}
+      CRM_JDBC_URL: jdbc:postgresql://postgres:5432/${CRM_DB_NAME}
+      CRM_DB_USER: ${CRM_DB_USER}
+      CRM_DB_PASSWORD: ${CRM_DB_PASSWORD}
+      PHASE3_CONFIG: /opt/spark/jobs/phase3/config/phase3.yaml
+    volumes:
+      - spark-events:/spark-events
+      - spark-jobs:/opt/spark/jobs:ro
+    depends_on:
+      hive-metastore:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      spark-jobs-init:
+        condition: service_completed_successfully
+    mem_limit: ${SPARK_CONTAINER_MEMORY:-4g}
+    networks: [customer360]
+    restart: "no"
+
+  airflow-init:
+    <<: *airflow-common
+    command: ["bash", "/opt/airflow/init-airflow.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      spark-jobs-init:
+        condition: service_completed_successfully
+      spark-volume-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      hive-metastore:
+        condition: service_healthy
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow/plugins:/opt/airflow/plugins:ro
+      - airflow-logs:/opt/airflow/logs
+      - spark-events:/spark-events:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    mem_limit: ${AIRFLOW_SCHEDULER_MEMORY:-1g}
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname $${HOSTNAME}"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${AIRFLOW_PORT:-8083}:8080"
+    mem_limit: ${AIRFLOW_WEBSERVER_MEMORY:-1g}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  trino:
+    image: trinodb/trino:${TRINO_VERSION:-484}
+    environment:
+      TRINO_S3_ACCESS_KEY: ${TRINO_S3_ACCESS_KEY}
+      TRINO_S3_SECRET_KEY: ${TRINO_S3_SECRET_KEY}
+      TRINO_HEAP_SIZE: ${TRINO_HEAP_SIZE:-1536M}
+      JAVA_TOOL_OPTIONS: -Xmx${TRINO_HEAP_SIZE:-1536M}
+      TRINO_QUERY_MAX_MEMORY: ${TRINO_QUERY_MAX_MEMORY:-768MB}
+      TRINO_QUERY_MAX_TOTAL_MEMORY: ${TRINO_QUERY_MAX_TOTAL_MEMORY:-1GB}
+      TRINO_QUERY_MAX_RUN_TIME: ${TRINO_QUERY_MAX_RUN_TIME:-10m}
+    volumes:
+      - ./trino/config/base/config.properties:/etc/trino/config.properties:ro
+      - ./trino/config/base/jvm.config:/etc/trino/jvm.config:ro
+      - ./trino/config/base/node.properties:/etc/trino/node.properties:ro
+      - ./trino/catalog/lakehouse.properties:/etc/trino/catalog/lakehouse.properties:ro
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${TRINO_HTTP_PORT:-8084}:8080"
+    depends_on:
+      hive-metastore:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/v1/info >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: ${TRINO_CONTAINER_MEMORY:-2304m}
+    networks: [customer360]
+    restart: unless-stopped
+
+networks:
+  customer360:
+    name: ${DOCKER_NETWORK_NAME:-customer360-network}
+
+volumes:
+  postgres-data:
+    name: ${POSTGRES_VOLUME:-customer360-postgres}
+  minio-data:
+    name: ${MINIO_VOLUME:-customer360-minio}
+  airflow-logs:
+    name: ${AIRFLOW_LOGS_VOLUME:-customer360-airflow-logs}
+  spark-events:
+    name: ${SPARK_EVENTS_VOLUME:-customer360-spark-events}
+  spark-jobs:
+    name: ${SPARK_JOBS_VOLUME:-customer360-spark-jobs}

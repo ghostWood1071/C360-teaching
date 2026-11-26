@@ -1,0 +1,32 @@
+services:
+  solr:
+    image: solr:${SOLR_VERSION:-9.8.1}
+    command: ["solr-precreate", "ranger_audits", "/opt/solr/server/solr/configsets/_default"]
+    volumes:
+      - solr-data:/var/solr
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${SOLR_PORT:-8983}:8983"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8983/solr/ranger_audits/admin/ping >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1g
+    networks: [customer360]
+    restart: unless-stopped
+
+  ranger-admin:
+    depends_on:
+      solr:
+        condition: service_healthy
+
+  trino:
+    environment:
+      RANGER_AUDIT_SOLR_ENABLED: "true"
+    depends_on:
+      solr:
+        condition: service_healthy
+
+volumes:
+  solr-data:
+    name: ${SOLR_VOLUME:-customer360-solr}

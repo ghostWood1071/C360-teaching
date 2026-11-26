@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <property>
+    <name>xasecure.audit.is.enabled</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>xasecure.audit.destination.log4j</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>xasecure.audit.destination.log4j.logger</name>
+    <value>ranger.audit</value>
+  </property>
+  <property>
+    <name>xasecure.audit.solr.is.enabled</name>
+    <value>${env:RANGER_AUDIT_SOLR_ENABLED}</value>
+  </property>
+  <property>
+    <name>xasecure.audit.solr.solr_url</name>
+    <value>http://solr:8983/solr/ranger_audits</value>
+  </property>
+  <property>
+    <name>xasecure.audit.destination.elasticsearch</name>
+    <value>disabled</value>
+  </property>
+</configuration>

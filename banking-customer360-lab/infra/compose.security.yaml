@@ -1,0 +1,167 @@
+services:
+  security-data-init:
+    image: ${SPARK_IMAGE}
+    command:
+      - spark-submit
+      - --master
+      - local[2]
+      - --driver-memory
+      - 1g
+      - --conf
+      - spark.sql.shuffle.partitions=2
+      - /opt/spark/jobs/smoke_tests/security_test_data.py
+    environment:
+      SPARK_S3_ACCESS_KEY: ${SPARK_S3_ACCESS_KEY}
+      SPARK_S3_SECRET_KEY: ${SPARK_S3_SECRET_KEY}
+    volumes:
+      - spark-jobs:/opt/spark/jobs:ro
+      - spark-events:/spark-events
+    depends_on:
+      hive-metastore:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      spark-jobs-init:
+        condition: service_completed_successfully
+    networks: [customer360]
+    mem_limit: ${SPARK_LOW_CONTAINER_MEMORY:-2560m}
+    restart: "no"
+
+  ranger-admin:
+    image: ${RANGER_IMAGE:-apache/ranger:2.7.0}
+    entrypoint: ["/bin/bash", "/home/ranger/customer360/official-entrypoint.sh"]
+    environment:
+      RANGER_DB_NAME: ${RANGER_DB_NAME}
+      RANGER_DB_USER: ${RANGER_DB_USER}
+      RANGER_DB_PASSWORD: ${RANGER_DB_PASSWORD}
+      RANGER_ADMIN_USER: ${RANGER_ADMIN_USER}
+      RANGER_ADMIN_PASSWORD: ${RANGER_ADMIN_PASSWORD}
+      RANGER_HEAP_SIZE: ${RANGER_HEAP_SIZE:-768m}
+    volumes:
+      - ./ranger/official-entrypoint.sh:/home/ranger/customer360/official-entrypoint.sh:ro
+      - ./ranger/config/install.properties.template:/home/ranger/customer360/install.properties.template:ro
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${RANGER_PORT:-6080}:6080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u ${RANGER_ADMIN_USER}:${RANGER_ADMIN_PASSWORD} http://127.0.0.1:6080/service/public/v2/api/service >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 60s
+    mem_limit: ${RANGER_CONTAINER_MEMORY:-1536m}
+    networks: [customer360]
+    restart: unless-stopped
+
+  ranger-init:
+    image: customer360-airflow:${AIRFLOW_VERSION:-2.10.5}
+    command: ["python", "/bootstrap/bootstrap_ranger.py"]
+    environment:
+      RANGER_URL: http://ranger-admin:6080
+      RANGER_ADMIN_USER: ${RANGER_ADMIN_USER}
+      RANGER_ADMIN_PASSWORD: ${RANGER_ADMIN_PASSWORD}
+      RANGER_SERVICE_NAME: ${RANGER_SERVICE_NAME:-customer360-trino}
+      TRINO_PLATFORM_ADMIN_PASSWORD: ${TRINO_PLATFORM_ADMIN_PASSWORD}
+    volumes:
+      - ./ranger/bootstrap:/bootstrap:ro
+    depends_on:
+      ranger-admin:
+        condition: service_healthy
+    networks: [customer360]
+    restart: "no"
+
+  ranger-storage-init:
+    image: trinodb/trino:${TRINO_VERSION:-484}
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R 1000:1000 /var/log/trino/ranger-audit /var/lib/trino/ranger-policy-cache"]
+    volumes:
+      - ranger-audit:/var/log/trino/ranger-audit
+      - ranger-policy-cache:/var/lib/trino/ranger-policy-cache
+    networks: [customer360]
+    mem_limit: 128m
+    restart: "no"
+
+  trino:
+    environment:
+      TRINO_S3_ACCESS_KEY: ${TRINO_S3_ACCESS_KEY}
+      TRINO_S3_SECRET_KEY: ${TRINO_S3_SECRET_KEY}
+      TRINO_HEAP_SIZE: ${TRINO_HEAP_SIZE:-1536M}
+      JAVA_TOOL_OPTIONS: -Xmx${TRINO_HEAP_SIZE:-1536M}
+      TRINO_QUERY_MAX_MEMORY: ${TRINO_QUERY_MAX_MEMORY:-768MB}
+      TRINO_QUERY_MAX_TOTAL_MEMORY: ${TRINO_QUERY_MAX_TOTAL_MEMORY:-1GB}
+      TRINO_QUERY_MAX_RUN_TIME: ${TRINO_QUERY_MAX_RUN_TIME:-10m}
+      TRINO_KEYSTORE_PASSWORD: ${TRINO_KEYSTORE_PASSWORD}
+      TRINO_INTERNAL_SHARED_SECRET: ${TRINO_INTERNAL_SHARED_SECRET}
+      RANGER_SERVICE_NAME: ${RANGER_SERVICE_NAME:-customer360-trino}
+      RANGER_AUDIT_SOLR_ENABLED: ${RANGER_AUDIT_SOLR_ENABLED:-false}
+    volumes:
+      - ./trino/config/security/config.properties:/etc/trino/config.properties:ro
+      - ./trino/config/base/jvm.config:/etc/trino/jvm.config:ro
+      - ./trino/config/base/node.properties:/etc/trino/node.properties:ro
+      - ./trino/catalog/lakehouse-security.properties:/etc/trino/catalog/lakehouse.properties:ro
+      - ./trino/config/security/password-authenticator.properties:/etc/trino/password-authenticator.properties:ro
+      - ./trino/config/security/access-control.properties:/etc/trino/access-control.properties:ro
+      - ./trino/config/security/password.db:/etc/trino/security/password.db:ro
+      - ./trino/ranger:/etc/trino/ranger:ro
+      - ./certs:/etc/trino/certs:ro
+      - ranger-audit:/var/log/trino/ranger-audit
+      - ranger-policy-cache:/var/lib/trino/ranger-policy-cache
+    ports: !override
+      - "${HOST_BIND:-127.0.0.1}:${TRINO_HTTPS_PORT:-8443}:8443"
+    depends_on:
+      hive-metastore:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      ranger-init:
+        condition: service_completed_successfully
+      ranger-storage-init:
+        condition: service_completed_successfully
+      security-data-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -kfsS -u platform_admin:${TRINO_PLATFORM_ADMIN_PASSWORD} https://127.0.0.1:8443/v1/info >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  security-tests:
+    image: customer360-airflow:${AIRFLOW_VERSION:-2.10.5}
+    profiles: [tools]
+    command: ["python", "/tests/verify_security.py", "--inside-compose"]
+    environment:
+      TRINO_HOST: trino
+      TRINO_PORT: "8443"
+      TRINO_PLATFORM_ADMIN_PASSWORD: ${TRINO_PLATFORM_ADMIN_PASSWORD}
+      TRINO_DATA_ENGINEER_PASSWORD: ${TRINO_DATA_ENGINEER_PASSWORD}
+      TRINO_RISK_ANALYST_PASSWORD: ${TRINO_RISK_ANALYST_PASSWORD}
+      TRINO_MARKETING_ANALYST_PASSWORD: ${TRINO_MARKETING_ANALYST_PASSWORD}
+      TRINO_EXTERNAL_USER_PASSWORD: ${TRINO_EXTERNAL_USER_PASSWORD}
+      TRINO_S3_ACCESS_KEY: ${TRINO_S3_ACCESS_KEY}
+      TRINO_S3_SECRET_KEY: ${TRINO_S3_SECRET_KEY}
+      MINIO_ENDPOINT: http://minio:9000
+      RANGER_URL: http://ranger-admin:6080
+      RANGER_ADMIN_USER: ${RANGER_ADMIN_USER}
+      RANGER_ADMIN_PASSWORD: ${RANGER_ADMIN_PASSWORD}
+      RANGER_POLICY_POLL_MS: ${RANGER_POLICY_POLL_MS:-30000}
+    volumes:
+      - ./scripts:/tests:ro
+      - ranger-audit:/var/log/trino/ranger-audit:ro
+    depends_on:
+      trino:
+        condition: service_healthy
+    networks: [customer360]
+
+volumes:
+  ranger-audit:
+    name: ${RANGER_AUDIT_VOLUME:-customer360-ranger-audit}
+  ranger-policy-cache:
+    name: customer360-ranger-policy-cache

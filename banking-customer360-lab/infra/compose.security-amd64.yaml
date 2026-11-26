@@ -1,0 +1,4 @@
+services:
+  ranger-admin:
+    platform: linux/amd64
+    image: ${RANGER_IMAGE:-apache/ranger:2.7.0}

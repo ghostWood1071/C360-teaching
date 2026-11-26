@@ -1,0 +1,45 @@
+pipeline:
+  name: customer360_ingestion
+  source_mode: file
+  timezone: UTC
+
+storage:
+  raw_root: s3a://raw/{profile}
+  warehouse_root: s3a://warehouse
+
+catalog:
+  bronze_schema: bronze
+  silver_schema: silver
+  quality_schema: quality
+
+batches:
+  initial: batch_01
+  incremental: batch_02
+
+spark:
+  shuffle_partitions: 8
+  adaptive_enabled: true
+
+bronze:
+  write_strategy: replace_batch
+  preserve_raw_duplicates: true
+
+silver:
+  load_strategy: merge
+  customer_master_strategy: full_rebuild
+  transaction_partitioning: []
+
+jdbc:
+  fetch_size: 10000
+  num_partitions: 2
+  staging_table_prefix: phase3
+
+quality:
+  enabled: true
+  fail_on_duplicate_business_key: true
+  fail_on_conflicting_updates: true
+  fail_on_invalid_foreign_key: true
+
+observability:
+  explain_plan: false
+  event_log_enabled: true

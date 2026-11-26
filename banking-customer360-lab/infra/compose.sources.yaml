@@ -1,0 +1,32 @@
+services:
+  source-db-init:
+    image: postgres:${POSTGRES_VERSION:-16.6-bookworm}
+    entrypoint: ["/bin/sh", "/docker-entrypoint-initdb.d/initialize-sources.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_ADMIN_USER}
+      PGPASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_DB: postgres
+      CORE_BANKING_DB_NAME: ${CORE_BANKING_DB_NAME}
+      CORE_BANKING_DB_USER: ${CORE_BANKING_DB_USER}
+      CORE_BANKING_DB_PASSWORD: ${CORE_BANKING_DB_PASSWORD}
+      CRM_DB_NAME: ${CRM_DB_NAME}
+      CRM_DB_USER: ${CRM_DB_USER}
+      CRM_DB_PASSWORD: ${CRM_DB_PASSWORD}
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      METASTORE_DB_NAME: ${METASTORE_DB_NAME}
+      METASTORE_DB_USER: ${METASTORE_DB_USER}
+      METASTORE_DB_PASSWORD: ${METASTORE_DB_PASSWORD}
+      RANGER_DB_NAME: ${RANGER_DB_NAME}
+      RANGER_DB_USER: ${RANGER_DB_USER}
+      RANGER_DB_PASSWORD: ${RANGER_DB_PASSWORD}
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [customer360]
+    restart: "no"
